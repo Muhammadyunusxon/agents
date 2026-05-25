@@ -9,8 +9,8 @@ from bots.developer import DeveloperAgent
 from bots.pm import PMAgent
 from bots.qa import QAAgent
 from core.agent import BaseAgent
-from core.memory import Memory
-from settings import AGENTS, DB_PATH
+from core.memory import create_memory
+from settings import AGENTS, DATABASE_URL, DB_KIND, DB_PATH
 
 logger = logging.getLogger("run")
 
@@ -29,7 +29,18 @@ async def main() -> None:
         )
         return
 
-    memory = Memory(DB_PATH)
+    try:
+        memory = create_memory(
+            DB_KIND,
+            sqlite_path=DB_PATH,
+            dsn=DATABASE_URL,
+        )
+    except (RuntimeError, ValueError) as e:
+        logger.error("memory init failed: %s", e)
+        return
+
+    logger.info("memory backend: %s", DB_KIND)
+
     tasks = []
     for name, cfg in AGENTS.items():
         cls = AGENT_CLASSES.get(name)

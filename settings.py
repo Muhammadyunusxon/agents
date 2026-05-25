@@ -18,11 +18,16 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
+DB_KIND = os.getenv("DB_KIND", "sqlite").lower()
+
 _db_raw = os.getenv("DB_PATH", "./data/memory.sqlite")
 DB_PATH = Path(_db_raw)
 if not DB_PATH.is_absolute():
     DB_PATH = ROOT / DB_PATH
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+if DB_KIND == "sqlite":
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL") or None
 
 HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "20"))
 

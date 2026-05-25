@@ -9,6 +9,8 @@ python run.py
 
 All four bots run in one process. Logs are written to the console. Stop with `Ctrl+C` (asyncio cleanly shuts each bot down).
 
+By default the project uses SQLite (`DB_KIND=sqlite`). To switch to Postgres (e.g. Supabase), see [setup.md](setup.md#optional-use-supabase-postgres-instead-of-sqlite).
+
 ## Adding a new agent
 
 Example: add an `Architect` agent.
@@ -61,6 +63,21 @@ class LLM(Protocol):
 
 Then plug it into `llms/router.py` (choose the provider by model name prefix, e.g. `gemini-*` -> Google).
 
+## Adding a new memory backend
+
+Implement the `core/memory.py:Memory` Protocol in a new module (e.g. `core/memory_redis.py`):
+
+```python
+from core.memory import StoredMessage
+
+
+class RedisMemory:
+    async def save(self, msg: StoredMessage) -> None: ...
+    async def recent(self, chat_id: int, limit: int) -> list[StoredMessage]: ...
+```
+
+Then add a branch in `core/memory.py:create_memory()` and a new env knob (`DB_KIND=redis`, plus whatever connection info you need).
+
 ## Conventions
 
 | Area | Rule |
@@ -72,10 +89,11 @@ Then plug it into `llms/router.py` (choose the provider by model name prefix, e.
 | Imports | Absolute (`from core.agent import ...`) |
 | Async | All I/O async; never `time.sleep` in handlers, use `asyncio.sleep` |
 | Type hints | Required on public functions and classes |
-| Logging | `logging` module; level controlled by `LOG_LEVEL`; never log tokens, API keys, or full prompts |
+| Logging | `logging` module; level controlled by `LOG_LEVEL`; never log tokens, API keys, or `DATABASE_URL` |
 | Commit messages | Imperative mood, short: `add qa agent`, `fix mention parsing` |
 | Commit author | Author-only; do not add `Co-Authored-By` footers |
 | Branching | All work on `main` for now (MVP, single dev) |
+| Memory backend | Keep `Memory` Protocol-compatible when changing backend internals |
 
 ## Testing
 
@@ -87,7 +105,8 @@ pytest tests/ -v
 |---|---|
 | Unit | Mock the LLM call with `AsyncMock` |
 | Triggers | `core/triggers.py` is pure; easy to test with `Message` mocks |
-| Memory | Use `:memory:` SQLite; write and read sample messages |
+| Memory (SQLite) | Use `:memory:` SQLite; write and read sample messages |
+| Memory (Postgres) | Spin up a local Postgres in Docker, or run against a dedicated Supabase test project |
 | Integration | Use a real test bot (create `@test_pm_bot` in BotFather) |
 | Manual | `python run.py` and a Telegram group |
 
@@ -98,8 +117,11 @@ pytest tests/ -v
 | Check a single bot in isolation | `python -m bots.developer` |
 | Print the full LLM context | `LOG_LEVEL=DEBUG python run.py` |
 | Inspect SQLite history | `sqlite3 data/memory.sqlite "SELECT bot_name, substr(text,1,80) FROM messages ORDER BY id DESC LIMIT 20;"` |
+| Inspect Postgres history (Supabase) | Supabase Studio -> SQL Editor: `SELECT bot_name, substr(text, 1, 80) FROM messages ORDER BY id DESC LIMIT 20;` |
+| Inspect Postgres history (psql) | `psql "$DATABASE_URL" -c "SELECT bot_name, substr(text, 1, 80) FROM messages ORDER BY id DESC LIMIT 20;"` |
 | Webhook errors | This setup uses polling, not webhooks; only `getUpdates` runs |
 | Telegram rate limit | aiogram applies automatic backoff; if it happens often, lower `HISTORY_LIMIT` |
+| Postgres connection issues | See the [setup.md](setup.md#common-issues) Common Issues table |
 
 ## Git
 
@@ -125,8 +147,9 @@ data/
 
 | Stage | Scope |
 |---|---|
-| MVP (now) | Four bots, single group, text, mention-based triggers |
+| MVP (now) | Four bots, single group, text, mention-based triggers, SQLite or Postgres backend |
 | v0.2 | Rate limiting; retry on transient errors; long-message splitter improvements |
 | v0.3 | Tool use (Dev writes files; QA runs tests) |
 | v0.4 | Multi-group support; per-group project state |
-| v0.5 | Web dashboard (observability, prompt editing) |
+| v0.5 | Web dashboard backed by Supabase (observability, prompt editing) |
+| v0.6 | Backend-to-backend migration tool (SQLite <-> Postgres) |
