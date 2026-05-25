@@ -1,10 +1,10 @@
-# Arxitektura
+# Architecture
 
-## Umumiy g'oya
+## Overview
 
-4 ta alohida Telegram bot bitta guruh chatga qo'shiladi. Har bot bitta agentni (rol) ifodalaydi. Foydalanuvchi `@mention` orqali kerakli agentni chaqiradi. Agentlar bir-birini ham mention qila oladi; bu estafeta hosil qiladi.
+Four separate Telegram bots join one group chat. Each bot represents one agent (role). Users address an agent via `@mention`. Agents can also mention each other to form a handoff chain.
 
-## Komponentlar
+## Components
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -20,9 +20,9 @@
                               ▼
                   ┌───────────────────────┐
                   │   core/agent.py       │
-                  │   BaseAgent           │  (umumiy logika)
+                  │   BaseAgent           │  (shared logic)
                   │   - poll handler      │
-                  │   - mention/reply     │
+                  │   - mention / reply   │
                   │   - LLM call          │
                   │   - history store     │
                   └───────────────────────┘
@@ -30,69 +30,67 @@
               ┌───────────────┼───────────────┐
               ▼               ▼               ▼
         core/memory.py   core/triggers.py   llms/*
-        SQLite           mention parse      Claude / OpenAI
+        SQLite           mention parser     Claude / OpenAI
 ```
 
-## Komponentlar javobgarligi
+## Component responsibilities
 
-| Komponent | Javobgarlik |
+| Component | Responsibility |
 |---|---|
-| `run.py` | 4 botni asyncio.gather bilan parallel ishga tushirish, signal handling, graceful shutdown |
-| `settings.py` | `.env`'dan tokenlar, model mapping, DB path o'qish |
-| `core/agent.py:BaseAgent` | Bot + Dispatcher boshqaruvi, message handler ulash, LLM chaqirish, javob yuborish |
-| `core/memory.py` | SQLite ulanish, xabar yozish/o'qish, kontekst yig'ish (so'nggi N xabar) |
-| `core/triggers.py` | Xabarda mention bormi, reply kimga, bu botga tegishlimi (filter) |
-| `llms/base.py` | `LLM` protokoli: `async chat(system, messages, model) -> str` |
+| `run.py` | Launch all bots in parallel via `asyncio.gather`; handle signals and graceful shutdown |
+| `settings.py` | Read tokens, model mapping, and DB path from `.env` |
+| `core/agent.py:BaseAgent` | Manage `Bot` + `Dispatcher`, register handlers, call LLM, send replies |
+| `core/memory.py` | SQLite connection; save and load messages; build recent context |
+| `core/triggers.py` | Detect mentions and replies; decide if a message targets this bot |
+| `llms/base.py` | `LLM` protocol: `async chat(system, messages, model) -> str` |
 | `llms/anthropic_llm.py` | Claude API wrapper |
 | `llms/openai_llm.py` | OpenAI API wrapper |
-| `bots/<name>.py` | Konkret agent: nom, prompt fayli, ehtimol qo'shimcha tool'lar |
-| `prompts/<name>.md` | System prompt (rol, format, estafeta qoidalari) |
+| `bots/<name>.py` | Concrete agent: name, prompt file, optional extra tools |
+| `prompts/<name>.md` | System prompt (role, output format, handoff rules) |
 
-## Ma'lumot oqimi
+## Data flow
 
-1. **Foydalanuvchi yozadi:** `@dev_bot login ekranini yoz`
-2. **Telegram polling:** Dev bot xabarni oladi (`aiogram` long polling)
-3. **Trigger check:** `core/triggers.py` aniqlaydi:
-   - Bu xabar Dev'ga qaratilganmi? (mention yoki reply)
-   - Reply'da bo'lsa, kimning xabariga?
-4. **History yig'ish:** `core/memory.py` so'nggi N (default: 20) xabarni guruh tarixidan oladi
-5. **LLM chaqiriq:** `llms/anthropic_llm.py`:
-   - System prompt (`prompts/developer.md`)
-   - History (role/content juftlari)
-   - Yangi user xabar
-6. **Javob yuborish:** Dev bot `message.reply(text)` qiladi
-7. **History saqlash:** Yangi user xabar va bot javobi SQLite'ga yoziladi
-8. **Estafeta:** Agar Dev javobida `@qa_bot` mention bo'lsa, QA bot avtomatik trigger bo'ladi (3-bosqichdan boshlab)
+1. **User writes:** `@dev_bot please write the login screen`
+2. **Telegram polling:** the Dev bot receives the message (aiogram long polling)
+3. **Trigger check:** `core/triggers.py` decides if the message targets our bot (mention or reply)
+4. **History build:** `core/memory.py` fetches the last N messages (default: 20) from the group
+5. **LLM call:** `llms/anthropic_llm.py`:
+   - system prompt (`prompts/developer.md`)
+   - history (role/content pairs, including the new user message just recorded)
+6. **Reply:** Dev calls `message.reply(text)`
+7. **Save:** the new user message and the bot reply are written to SQLite
+8. **Handoff:** if Dev's reply mentions `@qa_bot`, the QA bot triggers automatically (starting at step 3)
 
-## Bir nechta bot bitta xabarga qanday reaksiya qiladi
+## How multiple bots react to one message
 
-Risk: bitta xabarda `@pm_bot @dev_bot` ikkalasi mention qilinsa, ikkalasi javob beradi. Bu boshlang'ich MVP'da ruxsat etiladi (zanjir uchun foydali). Kelajakda turn-taking qoidasi qo'shish mumkin.
+If a message mentions `@pm_bot @dev_bot`, both will reply. The MVP accepts this because it is useful for chained collaboration. A turn-taking rule may be added later.
 
-Echo loop'dan saqlanish:
-- Bot O'ZINI mention qilgan xabarga javob bermaydi (`message.from_user.is_bot and message.from_user.id == self.bot.id`)
-- Agar boshqa bot bizni mention qilsa, javob beramiz (estafeta)
+Avoiding echo loops:
+
+- A bot does not reply to its OWN messages (`message.from_user.id == self.bot.id` is filtered out)
+- A bot DOES reply when mentioned by ANOTHER bot (this is what enables the chain)
 
 ## Privacy mode
 
-BotFather, bot tanlang, `/setprivacy`, **Disable**.
+BotFather, select bot, `/setprivacy`, **Disable**.
 
-Busiz bot faqat o'ziga mention bo'lgan xabarlarni ko'radi va guruh kontekstini yig'a olmaydi (boshqa botlarning javoblarini ham ko'rmaydi).
+Without disabling privacy, the bot only sees messages that mention it directly and cannot build group context (including other agents' replies).
 
-## Konkurensiya modeli
+## Concurrency model
 
-- Bitta Python jarayoni, bitta asyncio event loop
-- Har bot uchun alohida `aiogram.Bot` va `aiogram.Dispatcher` instansiyasi
-- LLM chaqiriqlari async (`anthropic.AsyncAnthropic`, `openai.AsyncOpenAI`)
-- SQLite `aiosqlite` orqali, bitta yozish navbati (lock yo'q, single writer)
-- Bitta xabar uchun bitta agent ichida ketma-ket: history o'qish, LLM, javob, history yozish
+- One Python process, one asyncio event loop
+- One `aiogram.Bot` and `aiogram.Dispatcher` per agent
+- LLM calls are async (`anthropic.AsyncAnthropic`, `openai.AsyncOpenAI`)
+- SQLite via `aiosqlite`; single-writer pattern (no explicit lock)
+- Per incoming message: sequential within a single agent (read history, call LLM, reply, save)
 
-## Kontekst hajmi
+## Context window
 
-- Default: guruhdagi so'nggi 20 ta xabar (taxminan 2-4k token)
-- LLM context'ga sig'masa: eski xabarlardan trim qilish (token counter bilan emas, xabar soni bilan, MVP uchun yetarli)
-- Agar token limiti yetmasa: `settings.py:HISTORY_LIMIT`'ni pasaytirish
+- Default: the last 20 messages in the group (~2-4k tokens)
+- If the LLM context overflows: drop older messages (count-based, sufficient for MVP)
+- To shrink the window, lower `HISTORY_LIMIT` in `settings.py`
 
-## Saqlash sxemasi (SQLite)
+## Storage schema (SQLite)
 
 ```sql
 CREATE TABLE messages (
@@ -102,20 +100,23 @@ CREATE TABLE messages (
     user_id INTEGER NOT NULL,
     user_name TEXT,
     is_bot INTEGER NOT NULL DEFAULT 0,
-    bot_name TEXT,           -- agent nomi (pm/dev/qa/designer), bot bo'lmasa NULL
+    bot_name TEXT,           -- agent name (pm/developer/qa/designer); NULL for humans
     text TEXT NOT NULL,
     reply_to_message_id INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_messages_chat_created ON messages(chat_id, created_at DESC);
+CREATE UNIQUE INDEX uq_messages_chat_msg ON messages(chat_id, message_id);
 ```
 
-## Cheklovlar (MVP)
+The unique index makes it safe for multiple bots to record the same group message; redundant inserts are silently ignored.
 
-- Faqat bitta guruh chatda ishlashi nazarda tutilgan (multi-tenancy yo'q)
-- Telegram xabar limiti 4096 belgi; uzun javob bo'laklarga bo'linadi (`split_long_text`)
-- Faqat matn (tasvir/fayl/voice yo'q)
-- Rate limit yo'q (shaxsiy ishlatish uchun)
-- Auth yo'q: guruhdagi har kim har botga murojaat qila oladi
-- Test qatlami minimal (LLM mock bilan unit testlar yetarli MVP uchun)
+## MVP limitations
+
+- Designed for a single group chat (no multi-tenancy)
+- Telegram message limit of 4096 chars; long replies are split (`core/agent.py:split_text`)
+- Text only (no images, files, voice)
+- No rate limiting (personal use)
+- No auth: anyone in the group can address any bot
+- Minimal test layer (unit tests with mocked LLM are sufficient for MVP)

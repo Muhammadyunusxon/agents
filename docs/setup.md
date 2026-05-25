@@ -1,22 +1,22 @@
 # Setup
 
-## 1. BotFather'da 4 ta bot ochish
+## 1. Create four bots in BotFather
 
-[@BotFather](https://t.me/BotFather) bilan har bir agent uchun:
+In [@BotFather](https://t.me/BotFather), for each agent:
 
-1. `/newbot`, username tanlang (masalan `@myname_pm_bot`)
-2. Tokenni nusxalang, keyin `.env`'ga yozasiz
-3. `/setprivacy`, bot tanlang, **Disable** (MUHIM, busiz bot guruh xabarlarini ko'rmaydi)
-4. (ixtiyoriy) `/setdescription`, `/setuserpic` orqali tasvirlash
+1. `/newbot`, choose a username (e.g. `@myname_pm_bot`)
+2. Copy the token; you will paste it into `.env` later
+3. `/setprivacy`, select the bot, **Disable** (CRITICAL: without this, the bot will not see group messages)
+4. (optional) `/setdescription`, `/setuserpic` for nicer presentation
 
-Kerakli 4 bot: PM, Developer, QA, Designer.
+Required bots: PM, Developer, QA, Designer.
 
-## 2. API kalitlar
+## 2. API keys
 
 - **Anthropic:** https://console.anthropic.com, API Keys, Create
-- **OpenAI** (faqat Designer yoki boshqa rol GPT bo'lsa): https://platform.openai.com/api-keys
+- **OpenAI** (only if Designer or another role uses GPT): https://platform.openai.com/api-keys
 
-## 3. Lokal ishga tushirish
+## 3. Local run
 
 ```bash
 cd /Users/muhammadyunusxon/StudioProjects/agents
@@ -26,46 +26,46 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# .env'ni ochib, barcha qiymatlarni to'ldiring
+# open .env and fill in tokens and keys
 
 python run.py
 ```
 
-Konsolda hamma 4 bot `started polling` deb yozsa, tayyor.
+When the console shows `started polling` for all four bots, the system is ready.
 
-## 4. Telegram guruh sozlash
+## 4. Telegram group setup
 
-1. Yangi guruh oching (yoki mavjudni ishlatib)
-2. **Hamma 4 botni qo'shing:** Add member, har bir bot username'ini yozing
-3. Har birini **admin** qiling: Manage group, Administrators, Add Administrator. Faqat admin bot guruh xabarlarini to'liq ko'ra oladi (privacy `disable` bo'lsa ham, ko'p paytda admin status kerak)
-4. Test: `@pm_bot salom` yozing, PM javob berishi kerak
+1. Create a new group (or reuse an existing one)
+2. **Add all four bots:** Add member, type each bot username
+3. Make each bot an **admin**: Manage group, Administrators, Add Administrator. Even with privacy disabled, admin status is often required for the bot to receive all group messages
+4. Test: write `@pm_bot hello`; PM should reply
 
-## 5. `.env.example` mazmuni
+## 5. `.env.example` contents
 
 ```env
-# Telegram bot tokenlari
+# Telegram bot tokens
 PM_BOT_TOKEN=
 DEV_BOT_TOKEN=
 QA_BOT_TOKEN=
 DESIGNER_BOT_TOKEN=
 
-# LLM provider kalitlari
+# LLM provider keys
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 
-# Har agent uchun model (default qiymatlar settings.py'da)
+# Per-agent model (defaults set in settings.py)
 PM_MODEL=claude-sonnet-4-6
 DEV_MODEL=claude-opus-4-7
 QA_MODEL=claude-sonnet-4-6
 DESIGNER_MODEL=gpt-4o
 
-# SQLite yo'l
+# SQLite path (relative to project root)
 DB_PATH=./data/memory.sqlite
 
-# Kontekst (so'nggi nechta xabar LLM'ga beriladi)
+# How many recent messages go into the LLM context
 HISTORY_LIMIT=20
 
-# Loglash
+# Logging level: DEBUG, INFO, WARNING, ERROR
 LOG_LEVEL=INFO
 ```
 
@@ -79,19 +79,19 @@ aiosqlite>=0.20
 python-dotenv>=1.0
 ```
 
-## Tez-tez uchraydigan muammolar
+## Common issues
 
-| Muammo | Yechim |
+| Issue | Fix |
 |---|---|
-| Bot guruhda xabarlarni ko'rmayapti | Privacy mode `disable` qilinganmi? BotFather, `/mybots`, bot tanlang, Bot Settings, Group Privacy |
-| `Unauthorized` xato | Token noto'g'ri yoki bot revoke qilingan, BotFather'da `/revoke` qilinganmi tekshiring |
-| LLM `401` | API kalit noto'g'ri yoki kredit tugagan |
-| `chat_id` topilmayapti | Botni guruhga qo'shgandan keyin guruhda biror xabar yozing, log'da `chat_id` ko'rinadi |
-| Bot javob bermaydi, log'da xato yo'q | Mention `@username` to'g'ri yozilganmi? Privacy mode tekshiring |
-| Ikkala bot bitta xabarga javob beradi | Normal: mention'larga qarab har biri o'ziga tegishli deb javob beradi |
+| Bot does not see group messages | Privacy mode must be `Disable`; BotFather, `/mybots`, select bot, Bot Settings, Group Privacy |
+| `Unauthorized` error | Token is wrong or revoked; check with BotFather |
+| LLM `401` | API key is wrong or the account is out of credits |
+| `chat_id` not found | After adding the bot to the group, send any message; the log will show `chat_id` |
+| Bot does not reply and the log shows no error | Is `@username` typed correctly? Re-check privacy mode |
+| Two bots reply to one message | Normal: each bot reads mentions independently and decides if the message is theirs |
 
-## Xavfsizlik
+## Security
 
-- `.env` faylini hech qachon commit qilmang (`.gitignore`'da bor)
-- API kalit yoki tokenni log'ga chiqarmang
-- Bu MVP shaxsiy ishlatish uchun; ommaviy guruhga qo'yishdan oldin auth qoidasi qo'shing
+- Never commit `.env` (it is in `.gitignore`)
+- Do not log API keys or tokens
+- This MVP is for personal use; before exposing it to a public group, add an auth rule

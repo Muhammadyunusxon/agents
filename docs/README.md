@@ -1,8 +1,8 @@
-# Dokumentatsiya
+# Documentation
 
-- [architecture.md](architecture.md): tizim dizayni, komponentlar, ma'lumot oqimi
-- [setup.md](setup.md): BotFather, `.env`, lokal ishga tushirish
-- [agents.md](agents.md): har agent roli, modeli, prompt strategiyasi
-- [development.md](development.md): yangi agent qo'shish, konvensiyalar, debug
+- [architecture.md](architecture.md): system design, components, data flow
+- [setup.md](setup.md): BotFather, `.env`, local run
+- [agents.md](agents.md): each agent's role, model, and prompt strategy
+- [development.md](development.md): adding agents, conventions, debugging
 
-Loyiha umumiy ko'rinishi va konvensiyalar uchun ildizdagi [CLAUDE.md](../CLAUDE.md)'ni o'qing.
+For the project overview and conventions, see [CLAUDE.md](../CLAUDE.md) at the repo root.
