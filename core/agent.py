@@ -89,9 +89,9 @@ class BaseAgent:
                 messages=history,
                 model=self.model,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("[%s] LLM call failed", self.name)
-            await message.reply("Kechirasiz, javob olib bo'lmadi (LLM xatosi).")
+            await message.reply(_friendly_llm_error(exc))
             return
 
         response = (response or "").strip()
@@ -190,6 +190,30 @@ class BaseAgent:
             await self.dispatcher.start_polling(self.bot, handle_signals=False)
         finally:
             await self.bot.session.close()
+
+
+def _friendly_llm_error(exc: Exception) -> str:
+    """Map a raw LLM exception to an Uzbek user-facing message."""
+    text = str(exc).lower()
+    if "503" in text or "unavailable" in text or "overload" in text:
+        return (
+            "Hozir model band (server overload). "
+            "Bir necha daqiqadan keyin qayta yozing."
+        )
+    if "429" in text or "rate limit" in text or "quota" in text or "resource_exhausted" in text:
+        return (
+            "API limit oshdi. Kunlik kvota tugagan bo'lishi mumkin. "
+            "`.env`'da kuchsizroq model tanlang (masalan, DEV_MODEL=gemini-2.5-flash) "
+            "yoki ertaga qayta urinib ko'ring."
+        )
+    if "401" in text or "403" in text or "unauthorized" in text or "permission_denied" in text:
+        return (
+            "API kalit noto'g'ri yoki ruxsat yo'q. "
+            "`.env`'dagi `GOOGLE_API_KEY` (yoki tegishli kalit)ni tekshiring."
+        )
+    if "timeout" in text or "timed out" in text:
+        return "So'rov vaqti tugadi. Qayta yozing."
+    return "Kechirasiz, javob olib bo'lmadi (LLM xatosi). Qayta yozing."
 
 
 def split_text(text: str, limit: int) -> list[str]:
