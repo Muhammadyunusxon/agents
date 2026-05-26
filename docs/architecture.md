@@ -51,9 +51,10 @@ Four separate Telegram bots join one group chat. Each bot represents one agent (
 | `core/memory_postgres.py` | `PostgresMemory` implementation (hosted, e.g. Supabase) |
 | `core/triggers.py` | Detect mentions and replies; decide if a message targets this bot |
 | `llms/base.py` | `LLM` protocol: `async chat(system, messages, model) -> str` |
-| `llms/anthropic_llm.py` | Claude API wrapper |
-| `llms/openai_llm.py` | OpenAI API wrapper |
-| `llms/router.py` | Pick provider by model name prefix |
+| `llms/gemini_llm.py` | Google Gemini wrapper (default; free tier) |
+| `llms/anthropic_llm.py` | Anthropic Claude wrapper (paid) |
+| `llms/openai_llm.py` | OpenAI wrapper (paid) |
+| `llms/router.py` | Pick provider by model name prefix; lazy imports |
 | `bots/<name>.py` | Concrete agent: name, prompt file, optional extra tools |
 | `prompts/<name>.md` | System prompt (role, output format, handoff rules) |
 

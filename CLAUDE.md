@@ -5,7 +5,10 @@ A virtual dev team in Telegram: four agent bots (PM, Developer, QA, Designer) co
 ## Stack
 
 - Python 3.11+, aiogram 3.x (Telegram)
-- Anthropic Claude API, OpenAI API (selected by the router)
+- LLM router (chosen by model name prefix):
+  - Google Gemini via `google-genai` (default; free tier; `gemini-*`)
+  - Anthropic Claude via `anthropic` (paid; `claude-*`)
+  - OpenAI via `openai` (paid; `gpt-*`, `o1-*`, `o3-*`, `o4-*`)
 - Memory backend: SQLite via `aiosqlite` (default) or Postgres via `asyncpg` (e.g. Supabase)
 - `python-dotenv` for env loading
 

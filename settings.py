@@ -33,6 +33,7 @@ HISTORY_LIMIT = int(os.getenv("HISTORY_LIMIT", "20"))
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or None
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or None
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or None
 
 
 @dataclass(frozen=True)
@@ -60,12 +61,14 @@ def _maybe_agent(
     )
 
 
+# Defaults are Gemini (free tier, no credit card). Override per agent
+# in .env to use Anthropic Claude (claude-*) or OpenAI (gpt-*).
 AGENTS: dict[str, AgentConfig] = {}
 for _cfg in (
-    _maybe_agent("pm", "PM_BOT_TOKEN", "PM_MODEL", "claude-sonnet-4-6"),
-    _maybe_agent("developer", "DEV_BOT_TOKEN", "DEV_MODEL", "claude-opus-4-7"),
-    _maybe_agent("qa", "QA_BOT_TOKEN", "QA_MODEL", "claude-sonnet-4-6"),
-    _maybe_agent("designer", "DESIGNER_BOT_TOKEN", "DESIGNER_MODEL", "gpt-4o"),
+    _maybe_agent("pm", "PM_BOT_TOKEN", "PM_MODEL", "gemini-2.5-flash"),
+    _maybe_agent("developer", "DEV_BOT_TOKEN", "DEV_MODEL", "gemini-2.5-pro"),
+    _maybe_agent("qa", "QA_BOT_TOKEN", "QA_MODEL", "gemini-2.5-flash"),
+    _maybe_agent("designer", "DESIGNER_BOT_TOKEN", "DESIGNER_MODEL", "gemini-2.5-flash"),
 ):
     if _cfg is not None:
         AGENTS[_cfg.name] = _cfg
