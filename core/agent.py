@@ -1,12 +1,13 @@
 """Base agent: a Telegram bot wired to an LLM with shared group memory."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import ClassVar
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ChatType
+from aiogram.enums import ChatAction, ChatType
 from aiogram.types import Message
 
 from core.memory import Memory, StoredMessage
@@ -18,6 +19,7 @@ from settings import HISTORY_LIMIT, ROOT
 logger = logging.getLogger(__name__)
 
 TELEGRAM_MSG_LIMIT = 4000  # safe margin under Telegram's 4096 hard limit
+TYPING_REFRESH_SECONDS = 4  # Telegram's chat-action expires after ~5s
 
 
 class BaseAgent:
@@ -25,10 +27,13 @@ class BaseAgent:
 
     name: str = ""
     prompt_file: str = ""
+    # Short Uzbek line sent immediately on trigger, later replaced
+    # by the LLM's actual response via `message.edit_text()`.
+    thinking_text: str = "...o'ylab ko'rayapman"
 
     # Class-level registry: telegram bot user_id -> agent name.
-    # Populated as each agent starts; used to label other agents' messages
-    # when recording history.
+    # Populated as each agent starts; used to label other agents'
+    # messages when recording history.
     _agent_usernames: ClassVar[dict[int, str]] = {}
 
     def __init__(self, token: str, model: str, memory: Memory) -> None:
@@ -81,6 +86,17 @@ class BaseAgent:
             clean_text[:80],
         )
 
+        # Quick acknowledgement: shows up immediately, gets edited
+        # later with the real response.
+        placeholder: Message | None = None
+        try:
+            placeholder = await message.reply(self.thinking_text)
+        except Exception:
+            logger.exception("[%s] placeholder reply failed", self.name)
+
+        # Keep Telegram's typing indicator alive while the LLM works.
+        typing_task = asyncio.create_task(self._keep_typing(message.chat.id))
+
         try:
             history = await self._build_history(message.chat.id)
             llm = llm_for(self.model)
@@ -91,14 +107,51 @@ class BaseAgent:
             )
         except Exception as exc:
             logger.exception("[%s] LLM call failed", self.name)
-            await message.reply(_friendly_llm_error(exc))
+            await self._finalize_error(message, placeholder, exc)
             return
+        finally:
+            typing_task.cancel()
 
         response = (response or "").strip()
         if not response:
+            if placeholder is not None:
+                try:
+                    await placeholder.delete()
+                except Exception:
+                    logger.debug("[%s] could not delete empty placeholder", self.name)
             return
 
-        await self._reply(message, response)
+        await self._deliver(message, placeholder, response)
+
+    async def _keep_typing(self, chat_id: int) -> None:
+        """Refresh Telegram's typing indicator while the LLM is busy."""
+        try:
+            while True:
+                try:
+                    await self.bot.send_chat_action(chat_id, ChatAction.TYPING)
+                except Exception:
+                    return
+                await asyncio.sleep(TYPING_REFRESH_SECONDS)
+        except asyncio.CancelledError:
+            pass
+
+    async def _finalize_error(
+        self,
+        message: Message,
+        placeholder: Message | None,
+        exc: Exception,
+    ) -> None:
+        text = _friendly_llm_error(exc)
+        if placeholder is not None:
+            try:
+                await placeholder.edit_text(text)
+                return
+            except Exception:
+                logger.debug("[%s] could not edit placeholder with error", self.name)
+        try:
+            await message.reply(text)
+        except Exception:
+            logger.exception("[%s] error reply failed", self.name)
 
     async def _record(self, message: Message, text: str) -> None:
         user = message.from_user
@@ -131,6 +184,10 @@ class BaseAgent:
         rows = await self.memory.recent(chat_id, HISTORY_LIMIT)
         out: list[ChatMessage] = []
         for r in rows:
+            # Skip the placeholder ourselves saved as our own message;
+            # only the final delivered text should appear in history.
+            if r.is_bot and r.user_id == self._bot_id and r.text == self.thinking_text:
+                continue
             if r.is_bot and r.user_id == self._bot_id:
                 out.append({"role": "assistant", "content": r.text})
             else:
@@ -155,29 +212,71 @@ class BaseAgent:
                 merged.append(dict(m))
         return merged
 
-    async def _reply(self, message: Message, text: str) -> None:
-        for chunk in split_text(text, TELEGRAM_MSG_LIMIT):
+    async def _deliver(
+        self,
+        message: Message,
+        placeholder: Message | None,
+        text: str,
+    ) -> None:
+        chunks = split_text(text, TELEGRAM_MSG_LIMIT)
+        first = chunks[0]
+        rest = chunks[1:]
+
+        sent_first: Message | None = None
+        if placeholder is not None:
+            try:
+                edited = await placeholder.edit_text(first)
+                # edit_text returns Message for chat messages, bool for inline
+                sent_first = edited if isinstance(edited, Message) else placeholder
+            except Exception:
+                logger.warning(
+                    "[%s] placeholder edit failed; resending as new",
+                    self.name,
+                )
+                try:
+                    await placeholder.delete()
+                except Exception:
+                    pass
+                sent_first = None
+
+        if sent_first is None:
+            try:
+                sent_first = await message.reply(first)
+            except Exception:
+                logger.exception("[%s] first reply failed", self.name)
+                return
+
+        await self._save_own(sent_first, message.message_id, first)
+
+        for chunk in rest:
             try:
                 sent = await message.reply(chunk)
             except Exception:
-                logger.exception("[%s] reply failed", self.name)
+                logger.exception("[%s] reply chunk failed", self.name)
                 continue
+            await self._save_own(sent, message.message_id, chunk)
 
-            try:
-                await self.memory.save(
-                    StoredMessage(
-                        chat_id=sent.chat.id,
-                        message_id=sent.message_id,
-                        user_id=self._bot_id,
-                        user_name=self._username,
-                        is_bot=True,
-                        bot_name=self.name,
-                        text=chunk,
-                        reply_to_message_id=message.message_id,
-                    )
+    async def _save_own(
+        self,
+        sent: Message,
+        reply_to: int,
+        text: str,
+    ) -> None:
+        try:
+            await self.memory.save(
+                StoredMessage(
+                    chat_id=sent.chat.id,
+                    message_id=sent.message_id,
+                    user_id=self._bot_id,
+                    user_name=self._username,
+                    is_bot=True,
+                    bot_name=self.name,
+                    text=text,
+                    reply_to_message_id=reply_to,
                 )
-            except Exception:
-                logger.exception("[%s] saving own reply failed", self.name)
+            )
+        except Exception:
+            logger.exception("[%s] saving own reply failed", self.name)
 
     async def start(self) -> None:
         self._system_prompt = self._load_prompt()
@@ -200,13 +299,23 @@ def _friendly_llm_error(exc: Exception) -> str:
             "Hozir model band (server overload). "
             "Bir necha daqiqadan keyin qayta yozing."
         )
-    if "429" in text or "rate limit" in text or "quota" in text or "resource_exhausted" in text:
+    if (
+        "429" in text
+        or "rate limit" in text
+        or "quota" in text
+        or "resource_exhausted" in text
+    ):
         return (
             "API limit oshdi. Kunlik kvota tugagan bo'lishi mumkin. "
             "`.env`'da kuchsizroq model tanlang (masalan, DEV_MODEL=gemini-2.5-flash) "
             "yoki ertaga qayta urinib ko'ring."
         )
-    if "401" in text or "403" in text or "unauthorized" in text or "permission_denied" in text:
+    if (
+        "401" in text
+        or "403" in text
+        or "unauthorized" in text
+        or "permission_denied" in text
+    ):
         return (
             "API kalit noto'g'ri yoki ruxsat yo'q. "
             "`.env`'dagi `GOOGLE_API_KEY` (yoki tegishli kalit)ni tekshiring."
